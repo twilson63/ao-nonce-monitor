@@ -1,5 +1,7 @@
 # Nonce Monitor
 
+![Nonce Monitor](https://github.com/twilson63/ao-nonce-monitor/actions/workflows/nonce-monitor.yml/badge.svg)
+
 A lightweight monitoring script that validates nonce synchronization between AO network endpoints. This tool periodically checks that state values remain consistent across different services in the AO network infrastructure.
 
 ## Features
@@ -10,6 +12,8 @@ A lightweight monitoring script that validates nonce synchronization between AO 
 - **Slack notifications for nonce mismatches**: Get real-time alerts in Slack when mismatches are detected
 - **Batched alerts for multi-process monitoring**: Receive consolidated Slack alerts for multiple processes
 - **Automated Validation**: Detects synchronization mismatches in real-time
+- **GitHub Actions automation (serverless monitoring)**: Run monitoring without any server infrastructure
+- **No server infrastructure required**: Deploy and run completely serverless via GitHub Actions
 - **Zero Dependencies**: Uses native Node.js fetch API (Node.js 18+)
 - **Resilient Error Handling**: Gracefully handles network failures, timeouts, and malformed responses
 - **Configurable Timeouts**: Adjustable request timeout settings
@@ -20,6 +24,49 @@ A lightweight monitoring script that validates nonce synchronization between AO 
 ## Requirements
 
 - **Node.js**: v18.0.0 or higher (for native fetch API support)
+
+## Deployment Options
+
+The Nonce Monitor supports two deployment strategies:
+
+### Option 1: Cron on Server (Traditional)
+- **Best for**: High-frequency monitoring (<5 minutes), private repositories, full control
+- **Requires**: A server or VPS, cron configuration, server maintenance
+- **Frequency**: Any interval (down to every minute)
+- **Cost**: Server hosting costs
+
+### Option 2: GitHub Actions (Serverless) ✨ NEW
+- **Best for**: Public repositories, serverless deployment, minimal setup
+- **Requires**: GitHub repository only (no server needed)
+- **Frequency**: Every 5 minutes or longer (GitHub Actions limitation)
+- **Cost**: Free for public repos, included minutes for private repos
+
+### Comparison
+
+| Feature | Cron on Server | GitHub Actions |
+|---------|----------------|----------------|
+| **Setup Complexity** | Medium (server + cron) | Low (just GitHub) |
+| **Infrastructure** | Server required | None required |
+| **Minimum Interval** | 1 minute | 5 minutes |
+| **Cost** | Server costs | Free (public repos) |
+| **Maintenance** | Server updates needed | Fully managed |
+| **Best For** | High-frequency checks | Standard monitoring |
+
+## Which Deployment Should I Use?
+
+### Use GitHub Actions if:
+- ✅ Your repository is public or you have GitHub Actions minutes available
+- ✅ You want serverless deployment with zero infrastructure
+- ✅ 5-minute check intervals are sufficient for your needs
+- ✅ You prefer minimal setup and maintenance
+- ✅ You want built-in logging and history via GitHub UI
+
+### Use Cron on Server if:
+- ✅ You need sub-5-minute monitoring intervals (e.g., every 1-2 minutes)
+- ✅ You have a private repository with high-frequency requirements
+- ✅ You want full control over execution environment
+- ✅ You already have server infrastructure available
+- ✅ You need custom execution timing or complex scheduling
 
 ## Configuration Modes
 
@@ -63,6 +110,91 @@ Monitor multiple processes simultaneously from a configuration file. This mode i
    ```bash
    chmod +x nonce-monitor.js
    ```
+
+## GitHub Actions Deployment (Serverless)
+
+### Overview
+
+Run the Nonce Monitor completely serverless using GitHub Actions. No server infrastructure required - GitHub runs your monitoring checks automatically on a schedule.
+
+GitHub Actions provides:
+- ✅ **Serverless execution** - Runs in GitHub's cloud infrastructure
+- ✅ **Free for public repos** - Unlimited Actions minutes
+- ✅ **Built-in logging** - View comprehensive logs in Actions tab
+- ✅ **Easy management** - Enable/disable workflows with one click
+- ✅ **Version controlled** - All workflow updates via git
+- ✅ **Reliable execution** - GitHub's infrastructure ensures scheduled runs
+
+### Quick Setup
+
+1. **Configure Secrets** (Settings → Secrets → Actions):
+   ```
+   PROCESS_ID: your-process-id
+   SLACK_WEBHOOK_URL: your-webhook-url (optional)
+   ```
+
+2. **Enable Workflow**:
+   - Workflows are in `.github/workflows/`
+   - `nonce-monitor.yml` - Single process monitoring
+   - `nonce-monitor-multi.yml` - Multiple processes monitoring
+   - Automatically runs every 5 minutes
+
+3. **Manual Trigger** (for testing):
+   - Go to Actions tab
+   - Select workflow
+   - Click "Run workflow"
+
+4. **View Logs**:
+   - Actions tab → Recent workflow runs
+   - Click run to see detailed logs
+
+### Workflow Files
+
+**Single Process** (`.github/workflows/nonce-monitor.yml`):
+```yaml
+# Runs every 5 minutes
+# Uses PROCESS_ID secret
+```
+
+**Multi-Process** (`.github/workflows/nonce-monitor-multi.yml`):
+```yaml
+# Runs every 5 minutes
+# Uses process-ids.txt from repository
+```
+
+### Cost Considerations
+
+| Repository Type | Cost |
+|----------------|------|
+| Public | **FREE** (unlimited minutes) |
+| Private (5-min) | ~$8/month |
+| Private (15-min) | **FREE** (within limits) |
+
+### Status Badge
+
+Add to your README:
+```markdown
+![Nonce Monitor](https://github.com/twilson63/ao-nonce-monitor/actions/workflows/nonce-monitor.yml/badge.svg)
+```
+
+Result: ![Nonce Monitor](https://github.com/twilson63/ao-nonce-monitor/actions/workflows/nonce-monitor.yml/badge.svg)
+
+### Comparison: GitHub Actions vs Cron
+
+| Feature | GitHub Actions | Cron on Server |
+|---------|---------------|----------------|
+| Infrastructure | None required | Server required |
+| Setup Time | 10 minutes | 1-2 hours |
+| Cost | Free (public) | $5-50/month |
+| Logs | Built-in | Manual setup |
+| Updates | Git push | SSH + manual |
+| Min Interval | 5 minutes | 1 minute |
+
+**Recommendation**: Use GitHub Actions for most deployments. Use cron only if you need sub-5-minute intervals or already have server infrastructure.
+
+### Detailed Setup Instructions
+
+For complete step-by-step setup instructions, see [GITHUB_ACTIONS_SETUP.md](GITHUB_ACTIONS_SETUP.md)
 
 ## Configuration File
 
@@ -188,6 +320,23 @@ SLACK_ALERT_ON_ERROR=true
 For detailed setup instructions, see [SLACK_SETUP.md](SLACK_SETUP.md).
 
 ## Usage
+
+### Automated (GitHub Actions)
+
+Once GitHub Actions is configured, monitoring runs automatically:
+
+1. **View logs**: Go to your repository → Actions tab → Select latest workflow run
+2. **Manual trigger**: Actions tab → Select workflow → Run workflow button
+3. **Check status**: Use the workflow status badge in your README
+4. **Monitor history**: All past runs are visible in the Actions tab with full logs
+
+**Manual Workflow Trigger:**
+```bash
+# Using GitHub CLI
+gh workflow run nonce-monitor.yml
+
+# Or via GitHub UI: Actions → Nonce Monitor → Run workflow
+```
 
 ### Quick Setup with Slack
 
@@ -701,6 +850,87 @@ Example split strategy:
   
   # Regular processes - check every 5 minutes  
   */5 * * * * CONFIG_FILE=regular.txt node nonce-monitor.js
+```
+
+### GitHub Actions Issues
+
+**Issue**: Workflow not running automatically
+```
+Solutions:
+  1. Check workflow file is in .github/workflows/ directory
+  2. Verify workflow file has correct YAML syntax:
+     - Use GitHub's online YAML validator
+     - Check indentation (YAML is whitespace-sensitive)
+  
+  3. Ensure scheduled workflows are enabled:
+     - Go to repository Settings → Actions → General
+     - Check "Allow all actions and reusable workflows"
+  
+  4. Note: GitHub may disable scheduled workflows after 60 days of repository inactivity
+     - Manual workflow runs reset this timer
+```
+
+**Issue**: Secrets not working in GitHub Actions
+```
+Solutions:
+  1. Verify secrets are correctly set:
+     - Go to Settings → Secrets and variables → Actions
+     - Ensure SLACK_WEBHOOK_URL is listed
+  
+  2. Check secret names match exactly (case-sensitive):
+     - In workflow: ${{ secrets.SLACK_WEBHOOK_URL }}
+     - In settings: SLACK_WEBHOOK_URL
+  
+  3. Secrets are not available in pull requests from forks (security)
+  
+  4. Re-create the secret if it's not working:
+     - Delete and re-add with correct value
+```
+
+**Issue**: Schedule delays or inconsistent timing
+```
+GitHub Actions scheduled workflows have limitations:
+  - Minimum interval: 5 minutes (*/5 * * * *)
+  - May be delayed during high load (up to 10-15 minutes)
+  - Not guaranteed to run at exact time
+  
+Solutions:
+  - Use cron on server if you need precise timing
+  - Accept that serverless has timing tradeoffs
+  - Schedule is best-effort, not guaranteed
+  
+Example: */5 schedule might actually run:
+  - 10:00, 10:05, 10:12, 10:17 (not always exact 5 min)
+```
+
+**Issue**: Workflow runs but monitoring fails
+```
+Solutions:
+  1. Check workflow logs in Actions tab for error messages
+  
+  2. Verify process-ids.txt is committed to repository:
+     git ls-files process-ids.txt
+  
+  3. Test locally to reproduce:
+     node nonce-monitor.js
+  
+  4. Check if endpoints are accessible from GitHub's servers:
+     - Some firewalls block GitHub Actions IPs
+     - Verify endpoints are publicly accessible
+```
+
+**Issue**: Cannot manually trigger workflow
+```
+Solutions:
+  1. Ensure workflow has workflow_dispatch trigger:
+     on:
+       schedule:
+         - cron: '*/5 * * * *'
+       workflow_dispatch:  # This enables manual runs
+  
+  2. You must have write access to the repository
+  
+  3. Check repository settings allow Actions workflows
 ```
 
 ## Architecture

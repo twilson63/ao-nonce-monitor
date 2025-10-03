@@ -4,19 +4,21 @@ This guide provides comprehensive instructions for deploying the AO Network Nonc
 
 ## Table of Contents
 1. [Prerequisites](#prerequisites)
-2. [Installation Steps](#installation-steps)
-3. [Slack Webhook Setup](#slack-webhook-setup)
-4. [Multi-Process Configuration](#multi-process-configuration)
-5. [Crontab Configuration](#crontab-configuration)
-6. [Log Management](#log-management)
-7. [Performance Tuning](#performance-tuning)
-8. [Process Management](#process-management)
-9. [Security Considerations](#security-considerations)
-10. [Monitoring and Alerting](#monitoring-and-alerting)
-11. [Slack Integration Best Practices](#slack-integration-best-practices)
-12. [Scaling Considerations](#scaling-considerations)
-13. [Backup and Recovery](#backup-and-recovery)
-14. [Troubleshooting](#troubleshooting)
+2. [Deployment Option 1: GitHub Actions (Recommended)](#deployment-option-1-github-actions-recommended)
+3. [Deployment Option 2: Cron on Server](#deployment-option-2-cron-on-server)
+4. [Installation Steps](#installation-steps)
+5. [Slack Webhook Setup](#slack-webhook-setup)
+6. [Multi-Process Configuration](#multi-process-configuration)
+7. [Crontab Configuration](#crontab-configuration)
+8. [Log Management](#log-management)
+9. [Performance Tuning](#performance-tuning)
+10. [Process Management](#process-management)
+11. [Security Considerations](#security-considerations)
+12. [Monitoring and Alerting](#monitoring-and-alerting)
+13. [Slack Integration Best Practices](#slack-integration-best-practices)
+14. [Scaling Considerations](#scaling-considerations)
+15. [Backup and Recovery](#backup-and-recovery)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -60,6 +62,176 @@ Before deployment, you need to prepare your process configuration:
 - Plan your multi-process deployment strategy (recommended: start with 1-5 processes)
 
 ---
+
+## Deployment Option 1: GitHub Actions (Recommended)
+
+### Overview
+GitHub Actions provides serverless execution with zero infrastructure management.
+
+**Best for:**
+- Teams without dedicated infrastructure
+- Public repositories (unlimited free minutes)
+- Quick setup and easy maintenance
+- Version-controlled deployment
+
+### Prerequisites
+- GitHub repository with code pushed
+- GitHub account with Actions enabled
+- Process ID(s) to monitor
+- (Optional) Slack webhook URL
+
+### Step-by-Step Setup
+
+#### 1. Push Code to GitHub
+```bash
+git push origin main
+```
+
+#### 2. Configure GitHub Secrets
+Navigate to: `Settings → Secrets and variables → Actions → New repository secret`
+
+Add the following secrets:
+
+**Required:**
+- `PROCESS_ID`: Your AO process ID
+  - Example: `0syT13r0s0tgPmIed95bJnuSqaD29HQNN8D3ElLSrsc`
+
+**Optional:**
+- `SLACK_WEBHOOK_URL`: Your Slack webhook URL
+  - Get from: https://api.slack.com/apps
+- `REQUEST_TIMEOUT`: Request timeout in milliseconds
+  - Default: `10000`
+
+**Using GitHub CLI:**
+```bash
+# Install GitHub CLI if not already installed
+# brew install gh  # macOS
+# apt install gh   # Ubuntu
+
+# Authenticate
+gh auth login
+
+# Set secrets
+gh secret set PROCESS_ID
+# Paste your process ID when prompted
+
+gh secret set SLACK_WEBHOOK_URL
+# Paste your webhook URL when prompted
+```
+
+**Using Helper Script:**
+```bash
+./setup-github-secrets.sh
+```
+
+#### 3. Choose Workflow
+
+**Single Process Monitoring:**
+- File: `.github/workflows/nonce-monitor.yml`
+- Uses `PROCESS_ID` secret
+- Runs every 5 minutes automatically
+
+**Multi-Process Monitoring:**
+- File: `.github/workflows/nonce-monitor-multi.yml`
+- Uses `process-ids.txt` from repository
+- Ensure `process-ids.txt` is committed to repo
+
+#### 4. Enable Workflow
+
+Workflows are enabled by default once pushed to GitHub. To verify:
+
+1. Go to repository on GitHub
+2. Click "Actions" tab
+3. You should see "AO Network Nonce Monitor" workflow
+4. It will run automatically every 5 minutes
+
+#### 5. Manual Test Run
+
+Before waiting for scheduled run:
+
+1. Go to "Actions" tab
+2. Select workflow (left sidebar)
+3. Click "Run workflow" button
+4. Select branch (main)
+5. Click "Run workflow"
+6. Wait ~30 seconds for completion
+7. Click on the run to view logs
+
+#### 6. Monitor Execution
+
+**View Logs:**
+- Actions tab → Click any workflow run
+- Expand steps to see detailed output
+- Download logs if needed
+
+**Execution History:**
+- See all runs in Actions tab
+- Filter by status (success/failure)
+- View timing and duration
+
+**Notifications:**
+- GitHub sends email on workflow failures
+- Configure in: Settings → Notifications
+
+### Modifying Schedule
+
+To change from 5 minutes to different interval:
+
+1. Edit `.github/workflows/nonce-monitor.yml`
+2. Change cron schedule:
+   ```yaml
+   schedule:
+     - cron: '*/15 * * * *'  # Every 15 minutes
+   ```
+3. Commit and push changes
+
+### Disabling Monitoring
+
+**Temporary:**
+- Actions tab → Select workflow → "..." → "Disable workflow"
+
+**Permanent:**
+- Delete `.github/workflows/nonce-monitor.yml`
+
+### Troubleshooting
+
+See [GITHUB_ACTIONS_SETUP.md](GITHUB_ACTIONS_SETUP.md) for detailed troubleshooting.
+
+**Common Issues:**
+- Workflow not triggering: Check repository is active, wait 5-10 minutes
+- Secrets not working: Verify secret names match exactly
+- Timeout errors: Increase timeout in workflow file
+
+### Cost Management
+
+**Free Tier Limits:**
+- Public repos: Unlimited minutes
+- Private repos: 2,000 minutes/month
+
+**Current Usage:**
+- ~30 seconds per run
+- 12 runs/hour = 288 runs/day
+- ~144 minutes/day = ~4,320 minutes/month
+
+**For Private Repos:**
+- Exceeds free tier at 5-minute interval
+- Options:
+  1. Make repository public (unlimited)
+  2. Increase interval to 15 minutes (~1,440 min/month)
+  3. Upgrade to paid plan ($8/month for extra minutes)
+
+---
+
+## Deployment Option 2: Cron on Server
+
+### Overview
+Traditional server-based deployment using cron for scheduled execution.
+
+**Best for:**
+- Teams with existing server infrastructure
+- Need for custom server configuration
+- Private deployment requirements
+- High-frequency monitoring needs
 
 ## Installation Steps
 

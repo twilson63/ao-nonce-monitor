@@ -2325,3 +2325,564 @@ The **Slack integration** extends observability with:
 - **Flexible formatting**: Detailed attachments for few mismatches, compact text for many
 - **Secure configuration**: Environment variable-based webhook URL (never hardcoded)
 - **Error isolation**: Try-catch wrapping, timeout handling, fail-fast design
+
+## 14. GitHub Actions Deployment Architecture
+
+### Overview
+
+GitHub Actions provides serverless execution of the nonce monitor without requiring dedicated infrastructure. The workflow automates periodic checks of process nonces and sends alerts on mismatches, eliminating the need for self-hosted servers.
+
+### Deployment Model
+
+```
+GitHub Actions Workflow (Every 5 minutes)
+         ↓
+   Checkout Code
+         ↓
+   Setup Node.js 18
+         ↓
+   Load Secrets (PROCESS_ID, SLACK_WEBHOOK_URL)
+         ↓
+   Execute nonce-monitor.js
+         ↓
+   Capture Output → Actions Log
+         ↓
+   Send Slack Alert (if mismatch)
+         ↓
+   Set Workflow Status (success/failure)
+```
+
+**Workflow Definition (`.github/workflows/nonce-monitor.yml`):**
+
+```yaml
+name: Nonce Monitor
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      process_id:
+        description: 'Process ID to monitor'
+        required: false
+
+concurrency:
+  group: nonce-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Run Nonce Monitor
+        env:
+          PROCESS_ID: ${{ secrets.PROCESS_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: node nonce-monitor.js
+```
+
+### Workflow Triggers
+
+**Scheduled Execution:**
+- **Cron expression**: `*/5 * * * *` (every 5 minutes)
+- **Timezone**: UTC
+- **Precision**: GitHub Actions scheduled workflows may delay up to 10 minutes under high load
+- **Runner**: GitHub-hosted Ubuntu runners (latest stable)
+
+**Limitations:**
+- Minimum interval: 5 minutes (GitHub Actions limitation)
+- Schedule drift: Execution may delay during peak usage times
+- Not suitable for sub-5-minute monitoring requirements
+
+**Manual Execution:**
+- **Trigger**: `workflow_dispatch` event
+- **Use case**: Testing, debugging, or on-demand checks before scheduling
+- **Input override**: Optional `process_id` parameter to override default configuration
+- **Access**: Available via GitHub UI (Actions tab → Run workflow button)
+
+**Example manual trigger:**
+```bash
+gh workflow run nonce-monitor.yml -f process_id=ivJt7oYsNNPTAhmLDOZAKIlPm0VbXUQR1sF74Fm5fHo
+```
+
+### Concurrency Control
+
+**Configuration:**
+```yaml
+concurrency:
+  group: nonce-monitor
+  cancel-in-progress: false
+```
+
+**Behavior:**
+- **Exclusive execution**: Only one workflow runs at a time
+- **Queue management**: Subsequent triggers queue if one is running (not cancelled)
+- **Race prevention**: Ensures serial execution across all triggers (scheduled + manual)
+- **Resource protection**: Prevents duplicate simultaneous checks
+
+**Comparison: cancel-in-progress Options**
+
+| Setting | Behavior | Use Case |
+|---------|----------|----------|
+| `false` (current) | Queue subsequent runs | Ensure every check completes |
+| `true` | Cancel queued runs | Prefer latest check only |
+
+**Rationale for `false`:**
+- Every 5-minute check is important for historical tracking
+- Script execution is fast (~1-2s), queue rarely builds up
+- Ensures complete monitoring coverage with no gaps
+
+### Secret Management
+
+**GitHub Secrets Storage:**
+- **Encryption**: Secrets encrypted at rest using AES-256
+- **Runtime**: Decrypted only during workflow execution in isolated runner
+- **Logging**: Automatically redacted from logs (never exposed)
+- **Scope**: Repository-scoped (not accessible from forks or pull requests)
+
+**Required Secrets:**
+
+| Secret Name | Purpose | Example Value |
+|-------------|---------|---------------|
+| `PROCESS_ID` | AO process to monitor | `ivJt7oYsNNPTAhmLDOZAKIlPm0VbXUQR1sF74Fm5fHo` |
+| `SLACK_WEBHOOK_URL` | Slack alert destination | `https://hooks.slack.com/services/...` |
+
+**Secret Access in Workflow:**
+```yaml
+env:
+  PROCESS_ID: ${{ secrets.PROCESS_ID }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
+**Security Features:**
+- Secrets never logged (GitHub automatically masks secret values)
+- Not accessible in pull requests from forks (prevents secret exfiltration)
+- Audit trail available in repository settings (who added/modified secrets)
+- Can be rotated without code changes (update in Settings → Secrets)
+
+**Setting Secrets:**
+```bash
+# Via GitHub CLI
+gh secret set PROCESS_ID --body "ivJt7oYsNNPTAhmLDOZAKIlPm0VbXUQR1sF74Fm5fHo"
+gh secret set SLACK_WEBHOOK_URL --body "https://hooks.slack.com/services/..."
+
+# Via GitHub UI
+# Settings → Secrets and variables → Actions → New repository secret
+```
+
+### Execution Environment
+
+**GitHub-Hosted Runner Specifications:**
+
+| Resource | Specification | Notes |
+|----------|---------------|-------|
+| **Operating System** | Ubuntu Latest (22.04+) | Auto-updated by GitHub |
+| **CPU** | 2 cores | x86_64 architecture |
+| **RAM** | 7 GB | More than sufficient for script |
+| **Disk** | 14 GB SSD | Ephemeral, cleared after run |
+| **Network** | High-speed internet | Low latency to most endpoints |
+
+**Pre-installed Software:**
+- Git (latest)
+- Node.js (installed by `setup-node` action)
+- curl, wget (for debugging)
+- Standard Linux utilities (awk, grep, sed, etc.)
+
+**Workflow Steps Breakdown:**
+
+1. **Checkout Code** (`actions/checkout@v4`)
+   - Clones repository to runner workspace
+   - Defaults to latest commit on default branch
+   - Duration: ~2-5 seconds
+
+2. **Setup Node.js** (`actions/setup-node@v4`)
+   - Installs Node.js 18.x (latest stable 18)
+   - Configures npm environment
+   - Duration: ~5-10 seconds (cached after first run)
+
+3. **Run Nonce Monitor** (`node nonce-monitor.js`)
+   - Executes monitoring script with secrets as environment variables
+   - Captures stdout/stderr to workflow log
+   - Duration: ~1-2 seconds (network I/O dependent)
+
+**Total Execution Time:** ~10-20 seconds per run
+
+### Logging & Observability
+
+**Workflow Logs:**
+- **Real-time streaming**: Logs visible during execution in GitHub Actions UI
+- **Retention**: 90 days (default, configurable up to 400 days for Enterprise)
+- **Downloadable**: ZIP archive of all workflow logs available
+- **Searchable**: Full-text search within Actions UI
+
+**Log Structure:**
+```
+Run node nonce-monitor.js
+[2025-10-03T14:30:00.123Z] State Nonce: 5243123 | SU Router Nonce: 5243123 | Status: MATCH
+```
+
+**Accessing Logs:**
+```bash
+# Via GitHub CLI
+gh run list --workflow=nonce-monitor.yml
+gh run view <run-id> --log
+
+# Via GitHub UI
+# Actions tab → Nonce Monitor workflow → Select run → View logs
+```
+
+**Metrics Available:**
+
+| Metric | Description | Location |
+|--------|-------------|----------|
+| **Execution time** | Time per run (wall clock) | Workflow run summary |
+| **Success/failure rate** | % of successful runs | Workflow insights |
+| **Queue time** | Wait time if queued | Run details |
+| **Actions minutes** | Billable compute time | Settings → Billing |
+
+**Monitoring Dashboard:**
+- **GitHub Insights**: Actions tab → Workflow insights
+- **Metrics shown**: Success rate, duration percentiles, failure trends
+- **Time ranges**: Last 7/14/30 days
+
+### Workflow Summary
+
+Each run generates a workflow summary displayed in the Actions UI. This can be enhanced with a summary step:
+
+```yaml
+- name: Generate Summary
+  if: always()
+  run: |
+    echo "### Nonce Monitor Results 🚀" >> $GITHUB_STEP_SUMMARY
+    echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+    echo "**Time:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+    echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+```
+
+**Summary Display:**
+```markdown
+### Nonce Monitor Results 🚀
+**Status:** success
+**Time:** 2025-10-03T12:00:00Z
+**Run ID:** 123456789
+```
+
+**Benefits:**
+- Quick status check without opening logs
+- Shareable summary link
+- Visible in PR checks (if triggered by PR events)
+
+### Cost Model
+
+**GitHub Actions Pricing:**
+
+| Account Type | Free Minutes/Month | Cost After Free Tier |
+|--------------|-------------------|---------------------|
+| **Public repos** | Unlimited | $0 |
+| **Private repos (Free)** | 2,000 minutes | N/A |
+| **Private repos (Team)** | 3,000 minutes | $0.008/minute |
+| **Private repos (Enterprise)** | 50,000 minutes | $0.008/minute |
+
+**Usage Calculation:**
+
+```
+Runs per day: 24 hours × 12 runs/hour = 288 runs
+Seconds per run: ~20 seconds ≈ 0.33 minutes
+Daily usage: 288 × 0.33 = 95 minutes
+Monthly usage: 95 × 30 = 2,850 minutes
+```
+
+**Cost Analysis:**
+
+| Scenario | Monthly Minutes | Cost (Public) | Cost (Private Free) | Cost (Private Team) |
+|----------|----------------|---------------|---------------------|---------------------|
+| **5-min interval** | 2,850 | $0 | Exceeds free tier | $6.80 |
+| **10-min interval** | 1,425 | $0 | Within free tier | $0 |
+| **15-min interval** | 950 | $0 | Within free tier | $0 |
+
+**Result:** 
+- **Public repos**: Free unlimited
+- **Private repos**: Exceeds free tier (2,000 min) at 5-min interval, requires paid plan or longer interval
+
+**Cost Optimization Strategies:**
+1. Increase interval to 10-15 minutes (stays within free tier)
+2. Use public repository (unlimited free)
+3. Upgrade to Team plan ($4/user/month includes 3,000 minutes)
+4. Self-host runners (no minute charges, requires infrastructure)
+
+### Comparison: GitHub Actions vs Server Cron
+
+| Aspect | GitHub Actions | Server Cron |
+|--------|----------------|-------------|
+| **Infrastructure** | GitHub-hosted (serverless) | Self-hosted server required |
+| **Setup Time** | 10 minutes | 1-2 hours (server + cron) |
+| **Maintenance** | None (GitHub manages) | Regular OS updates, patches |
+| **Logs** | Built-in UI, searchable | Manual setup (logrotate, etc.) |
+| **Cost (public repo)** | $0 | $5-50/month (VPS/cloud) |
+| **Cost (private repo)** | $6.80/month (5-min interval) | $5-50/month |
+| **Minimum Interval** | 5 minutes | Any interval (even 1 second) |
+| **Reliability** | 99.9% SLA (GitHub uptime) | Depends on server/provider |
+| **Updates** | `git push` (instant) | SSH + deploy script |
+| **Scalability** | Automatic (GitHub scales) | Manual (upgrade server) |
+| **Observability** | GitHub Actions UI | Custom (Grafana, CloudWatch, etc.) |
+
+**Recommendation Matrix:**
+
+| Requirement | Recommended Solution |
+|-------------|---------------------|
+| Public repo + any interval | GitHub Actions ✓ |
+| Private repo + 10-min interval | GitHub Actions ✓ |
+| Private repo + 5-min interval + low budget | Server Cron ✓ |
+| Sub-5-minute monitoring | Server Cron ✓ (Actions can't do this) |
+| No infrastructure management | GitHub Actions ✓ |
+| Need for custom environment | Server Cron ✓ |
+
+### Limitations
+
+**Schedule Limitations:**
+- **Minimum interval**: 5 minutes (GitHub Actions limitation, cannot go lower)
+- **Schedule drift**: May delay up to 10 minutes during high GitHub load
+- **No sub-minute**: Not suitable for sub-minute monitoring requirements
+- **Cron syntax**: Standard cron, but only 5-minute minimum enforced
+
+**Execution Limits:**
+- **Max run time**: 6 hours per workflow run (far exceeds script needs)
+- **API rate limits**: 1,000 API requests per hour per repository
+- **Concurrency**: 20 concurrent jobs for free tier, 180 for paid
+- **Workflow file size**: 20 KB max (current workflow is ~1 KB)
+
+**Storage Limits:**
+- **Workflow logs**: 90 days retention (default, configurable)
+- **Artifacts**: 500 MB per repository (for file uploads)
+- **No persistent state**: Cannot persist state between runs without external storage
+
+**Other Constraints:**
+- No persistent filesystem (runner wiped after each run)
+- Cannot run interactive commands
+- No custom runner configurations on free tier
+- Secrets limited to 64 KB per secret
+
+### When to Use GitHub Actions
+
+**Ideal For:**
+- ✅ **Public repositories** (unlimited free minutes)
+- ✅ **Teams without infrastructure** (no servers to manage)
+- ✅ **5-minute or longer intervals** (meets scheduling requirements)
+- ✅ **Quick setup requirements** (10 minutes to deploy)
+- ✅ **Version-controlled deployment** (workflow file in git)
+- ✅ **Built-in observability** (GitHub Actions UI for logs/metrics)
+
+**Not Ideal For:**
+- ❌ **Sub-5-minute monitoring** (GitHub Actions can't support)
+- ❌ **Private repos with high frequency** (exceeds free tier, costly)
+- ❌ **Need for persistent state** (no filesystem persistence)
+- ❌ **Custom execution environment** (limited runner customization)
+- ❌ **Network-restricted environments** (runners on public internet)
+
+**Decision Tree:**
+
+```
+Need sub-5-minute monitoring?
+  YES → Use Server Cron
+  NO ↓
+
+Public repository?
+  YES → Use GitHub Actions ✓
+  NO ↓
+
+Private repo + 10-min interval acceptable?
+  YES → Use GitHub Actions ✓
+  NO ↓
+
+Budget >$7/month?
+  YES → Use GitHub Actions (paid tier)
+  NO → Use Server Cron
+```
+
+### Migration Path
+
+**From Cron to GitHub Actions:**
+
+1. **Push code to GitHub**
+   ```bash
+   git init
+   git add nonce-monitor.js
+   git commit -m "Add nonce monitor script"
+   git remote add origin https://github.com/user/repo.git
+   git push -u origin main
+   ```
+
+2. **Configure secrets in GitHub**
+   ```bash
+   gh secret set PROCESS_ID --body "ivJt7oYsNNPTAhmLDOZAKIlPm0VbXUQR1sF74Fm5fHo"
+   gh secret set SLACK_WEBHOOK_URL --body "https://hooks.slack.com/services/..."
+   ```
+
+3. **Create workflow file**
+   ```bash
+   mkdir -p .github/workflows
+   # Create nonce-monitor.yml (as shown above)
+   git add .github/workflows/nonce-monitor.yml
+   git commit -m "Add GitHub Actions workflow"
+   git push
+   ```
+
+4. **Test with manual trigger**
+   ```bash
+   gh workflow run nonce-monitor.yml
+   gh run watch  # Watch execution
+   ```
+
+5. **Disable cron job** (once validated)
+   ```bash
+   crontab -e
+   # Comment out: # */5 * * * * node /path/to/nonce-monitor.js
+   ```
+
+6. **Monitor GitHub Actions execution**
+   - Check Actions tab for scheduled runs
+   - Verify Slack alerts working
+   - Monitor for 24-48 hours before fully decommissioning server
+
+**From GitHub Actions to Cron:**
+
+1. **Set up server with cron**
+   ```bash
+   ssh server.example.com
+   git clone https://github.com/user/repo.git
+   cd repo
+   ```
+
+2. **Deploy code and configure environment**
+   ```bash
+   export PROCESS_ID="ivJt7oYsNNPTAhmLDOZAKIlPm0VbXUQR1sF74Fm5fHo"
+   export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
+   echo 'export PROCESS_ID="..."' >> ~/.bashrc
+   echo 'export SLACK_WEBHOOK_URL="..."' >> ~/.bashrc
+   ```
+
+3. **Test cron execution**
+   ```bash
+   node nonce-monitor.js  # Verify works
+   ```
+
+4. **Configure cron**
+   ```bash
+   crontab -e
+   # Add: */5 * * * * cd /home/user/repo && node nonce-monitor.js >> /var/log/nonce-monitor.log 2>&1
+   ```
+
+5. **Disable GitHub Actions workflow** (once cron validated)
+   ```bash
+   # Comment out schedule trigger in .github/workflows/nonce-monitor.yml
+   git commit -m "Disable GitHub Actions schedule (migrated to cron)"
+   git push
+   ```
+
+### Future Enhancements
+
+**Workflow Artifacts for Log Storage:**
+```yaml
+- name: Upload Logs
+  if: failure()
+  uses: actions/upload-artifact@v4
+  with:
+    name: nonce-monitor-logs
+    path: /tmp/nonce-monitor.log
+    retention-days: 30
+```
+
+**Benefits:**
+- Persist logs beyond 90-day limit
+- Downloadable failure logs for debugging
+- Attach to issues for troubleshooting
+
+**Matrix Strategy for Multiple Networks:**
+```yaml
+strategy:
+  matrix:
+    network:
+      - mainnet
+      - testnet
+      - devnet
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Monitor
+        env:
+          NETWORK: ${{ matrix.network }}
+          PROCESS_ID: ${{ secrets[format('PROCESS_ID_{0}', matrix.network)] }}
+        run: node nonce-monitor.js
+```
+
+**Benefits:**
+- Monitor multiple networks in parallel
+- Network-specific configuration
+- Isolated failure tracking per network
+
+**Custom Action for Reusability:**
+```yaml
+# .github/actions/nonce-monitor/action.yml
+name: 'Nonce Monitor'
+description: 'Check AO process nonce synchronization'
+inputs:
+  process_id:
+    description: 'Process ID to monitor'
+    required: true
+  slack_webhook_url:
+    description: 'Slack webhook for alerts'
+    required: false
+runs:
+  using: 'node18'
+  main: 'index.js'
+```
+
+**Usage:**
+```yaml
+- uses: ./.github/actions/nonce-monitor
+  with:
+    process_id: ${{ secrets.PROCESS_ID }}
+    slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
+**Benefits:**
+- Reusable across multiple workflows
+- Easier to maintain (single source of truth)
+- Can publish to GitHub Marketplace
+
+**Status Dashboard Integration:**
+```yaml
+- name: Update Status Page
+  if: failure()
+  run: |
+    curl -X POST https://status.example.com/api/incidents \
+      -H "Authorization: Bearer ${{ secrets.STATUS_API_KEY }}" \
+      -d '{"title":"Nonce Mismatch Detected","status":"investigating"}'
+```
+
+**Benefits:**
+- Public status page updates on failures
+- Customer-facing incident tracking
+- Integration with status providers (StatusPage, Atlassian, etc.)
+
+---
+
+**Summary of GitHub Actions Architecture:**
+
+GitHub Actions provides a **serverless, zero-infrastructure deployment** for nonce monitoring with:
+
+- **Automated scheduling**: Cron-based execution every 5 minutes (configurable)
+- **Secure secrets**: GitHub-encrypted storage for sensitive configuration
+- **Built-in logging**: Searchable, retainable workflow logs with no setup
+- **Cost-effective**: Free for public repos, low-cost for private repos
+- **Easy maintenance**: Updates via `git push`, no server management
+
+**Trade-offs vs. Server Cron:**
+- **Pros**: No infrastructure, instant setup, built-in observability
+- **Cons**: 5-minute minimum interval, may exceed free tier for private repos
+
+**Best fit**: Teams wanting quick deployment without infrastructure management, acceptable with 5-minute monitoring intervals.

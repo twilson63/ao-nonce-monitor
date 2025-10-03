@@ -1,0 +1,70 @@
+name: AO Network Nonce Monitor (Multi-Process)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  
+  workflow_dispatch:
+
+concurrency:
+  group: nonce-monitor-multi
+  cancel-in-progress: false
+
+jobs:
+  monitor-multi-process:
+    name: Monitor Multiple Processes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Display workflow info
+        run: |
+          echo "Workflow: ${{ github.workflow }}"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Run number: ${{ github.run_number }}"
+          echo "Triggered by: ${{ github.event_name }}"
+          echo "Time: $(date -u)"
+      
+      - name: Verify process-ids.txt exists
+        run: |
+          if [ ! -f process-ids.txt ]; then
+            echo "Error: process-ids.txt not found"
+            exit 1
+          fi
+          echo "Process IDs configuration file found"
+      
+      - name: Display process count
+        run: |
+          PROCESS_COUNT=$(grep -v '^#' process-ids.txt | grep -v '^$' | wc -l)
+          echo "Number of processes to monitor: $PROCESS_COUNT"
+          echo "Process IDs:"
+          grep -v '^#' process-ids.txt | grep -v '^$' || echo "None found"
+      
+      - name: Run multi-process monitor
+        env:
+          CONFIG_FILE: process-ids.txt
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '10000' }}
+        run: |
+          echo "Starting multi-process nonce monitor..."
+          node nonce-monitor.js
+          EXIT_CODE=$?
+          echo "Monitor completed with exit code: $EXIT_CODE"
+          exit $EXIT_CODE
+      
+      - name: Workflow summary
+        if: always()
+        run: |
+          echo "### Multi-Process Nonce Monitor Results :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
