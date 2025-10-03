@@ -1,0 +1,22 @@
+{
+  "name": "nonce-monitor",
+  "version": "1.0.0",
+  "description": "AO Network nonce synchronization monitor",
+
+  "main": "nonce-monitor.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node nonce-monitor.js",
+    "test": "node test-monitor.js"
+  },
+  "keywords": [
+    "monitoring",
+    "ao-network",
+    "cron",
+    "nonce"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,19 @@
+# AO Network Nonce Monitor - Process ID Configuration
+#
+# Instructions:
+# 1. Copy this file to 'process-ids.txt'
+# 2. Add your process IDs (one per line)
+# 3. Lines starting with # are comments
+# 4. Empty lines are ignored
+#
+# Format:
+# - Each process ID should be on its own line
+# - Process IDs are typically 43-character alphanumeric strings
+# - The monitor will check all listed processes sequentially
+# - Remove or comment out processes you don't want to monitor
+#
+# Example:
+# 0syT13r0s0tgPmIed95bJnuSqaD29HQNN8D3ElLSrsc
+
+# Add your process IDs below:
+
