@@ -32,7 +32,7 @@ TOLERANCE=5  # Allow ±5 slots tolerance
 # Run monitor if we're close to a 500-slot boundary
 if [ $REMAINDER -lt $TOLERANCE ]; then
     echo "[$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)] Running at slot $CURRENT_SLOT (boundary: $((CURRENT_SLOT - REMAINDER)))"
-    /usr/bin/node "$SCRIPT_DIR/nonce-monitor.js"
+    /Users/rakis/.nvm/versions/node/v22.2.0/bin/node "$SCRIPT_DIR/nonce-monitor.js"
 else
     echo "[$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)] Skipping - not at $SLOT_INTERVAL-slot boundary (current: $CURRENT_SLOT, remainder: $REMAINDER)"
 fi

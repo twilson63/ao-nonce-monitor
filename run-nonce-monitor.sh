@@ -19,4 +19,4 @@ fi
 # export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
 
 # Run the nonce monitor
-/usr/bin/node "$SCRIPT_DIR/nonce-monitor.js"
+/Users/rakis/.nvm/versions/node/v22.2.0/bin/node "$SCRIPT_DIR/nonce-monitor.js"

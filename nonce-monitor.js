@@ -88,13 +88,70 @@ async function sendSlackAlert(mismatches) {
   }
 }
 
+async function sendSlackErrorAlert(errors) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  
+  if (!webhookUrl || errors.length === 0) {
+    return;
+  }
+  
+  try {
+    const message = buildSlackErrorMessage(errors);
+    await postToSlack(webhookUrl, message);
+    console.log(`[${getTimestamp()}] Slack error alert sent (${errors.length} error(s))`);
+  } catch (error) {
+    console.error(`[${getTimestamp()}] Failed to send Slack error alert: ${error.message}`);
+  }
+}
+
 function buildSlackMessage(mismatches) {
   const count = mismatches.length;
-  const text = count === 1 ? '🚨 Nonce Mismatch Detected' : `🚨 ${count} Nonce Mismatches Detected`;
+  const text = count === 1 ? '🚨 Process Behind Scheduler' : `🚨 ${count} Processes Behind Scheduler`;
+  const stateUrl = process.env.STATE_URL || 'https://state.forward.computer';
   
   if (count > 10) {
-    const compactList = mismatches.slice(0, 10).map(m => 
-      `• [${truncateProcessId(m.processId)}]: ${m.stateNonce} vs ${m.suRouterNonce}`
+    const compactList = mismatches.slice(0, 10).map(m => {
+      const diff = Math.abs(parseInt(m.stateNonce) - parseInt(m.suRouterNonce));
+      return `• ${stateUrl} is behind ${diff} slots to the scheduler unit for process: ${truncateProcessId(m.processId)}`;
+    }).join('\n');
+    const remaining = count - 10;
+    
+    return {
+      text: `${text}\n\n${compactList}\n\n... (${remaining} more)`,
+      footer: 'AO Network Nonce Monitor',
+      ts: Math.floor(Date.now() / 1000)
+    };
+  }
+  
+  const attachments = mismatches.map(mismatch => {
+    const diff = Math.abs(parseInt(mismatch.stateNonce) - parseInt(mismatch.suRouterNonce));
+    return {
+      color: 'danger',
+      fields: [
+        { title: 'Process ID', value: truncateProcessId(mismatch.processId), short: true },
+        { title: `${stateUrl} Slot`, value: String(mismatch.stateNonce), short: true },
+        { title: 'https://su-router.ao-testnet.xyz Slot', value: String(mismatch.suRouterNonce), short: true },
+        { title: 'Slots Behind', value: String(diff), short: true },
+        { title: 'Timestamp', value: mismatch.timestamp, short: false }
+      ]
+    };
+  });
+  
+  return {
+    text,
+    attachments,
+    footer: 'AO Network Nonce Monitor',
+    ts: Math.floor(Date.now() / 1000)
+  };
+}
+
+function buildSlackErrorMessage(errors) {
+  const count = errors.length;
+  const text = count === 1 ? '⚠️ Process Check Error' : `⚠️ ${count} Process Check Errors`;
+  
+  if (count > 10) {
+    const compactList = errors.slice(0, 10).map(e => 
+      `• [${truncateProcessId(e.processId)}]: ${e.error}`
     ).join('\n');
     const remaining = count - 10;
     
@@ -105,13 +162,12 @@ function buildSlackMessage(mismatches) {
     };
   }
   
-  const attachments = mismatches.map(mismatch => ({
-    color: 'danger',
+  const attachments = errors.map(err => ({
+    color: 'warning',
     fields: [
-      { title: 'Process ID', value: truncateProcessId(mismatch.processId), short: true },
-      { title: 'State Nonce', value: String(mismatch.stateNonce), short: true },
-      { title: 'SU Router Nonce', value: String(mismatch.suRouterNonce), short: true },
-      { title: 'Timestamp', value: mismatch.timestamp, short: true }
+      { title: 'Process ID', value: truncateProcessId(err.processId), short: true },
+      { title: 'Error', value: err.error, short: false },
+      { title: 'Timestamp', value: err.timestamp, short: true }
     ]
   }));
   
@@ -247,7 +303,8 @@ async function fetchSURouterNonce(suRouterUrl) {
 }
 
 async function checkProcess(processId) {
-  const stateUrl = `https://state.forward.computer/${processId}/compute/at-slot`;
+  const stateLocation = process.env.STATE_URL || 'https://state.forward.computer'
+  const stateUrl = `${stateLocation}/${processId}~process@1.0/compute/at-slot`;
   const suRouterUrl = `https://su-router.ao-testnet.xyz/${processId}/latest`;
   
   try {
@@ -318,7 +375,11 @@ async function main() {
       const exitCode = generateSummary(results);
       
       const mismatches = results
-        .filter(r => !r.error && !r.match)
+        .filter(r => {
+          if (r.error || r.match) return false;
+          const diff = Math.abs(parseInt(r.stateNonce) - parseInt(r.suRouterNonce));
+          return diff >= 50;
+        })
         .map(r => ({
           processId: r.processId,
           stateNonce: r.stateNonce,
@@ -326,7 +387,16 @@ async function main() {
           timestamp: getTimestamp()
         }));
       
+      const errors = results
+        .filter(r => r.error)
+        .map(r => ({
+          processId: r.processId,
+          error: r.error,
+          timestamp: getTimestamp()
+        }));
+      
       await sendSlackAlert(mismatches);
+      await sendSlackErrorAlert(errors);
       
       process.exit(exitCode);
     } catch (error) {
@@ -351,13 +421,16 @@ async function main() {
       
       const match = String(stateNonce) === String(suRouterNonce);
       if (!match) {
-        const mismatches = [{
-          processId,
-          stateNonce,
-          suRouterNonce,
-          timestamp: getTimestamp()
-        }];
-        await sendSlackAlert(mismatches);
+        const diff = Math.abs(parseInt(stateNonce) - parseInt(suRouterNonce));
+        if (diff >= 50) {
+          const mismatches = [{
+            processId,
+            stateNonce,
+            suRouterNonce,
+            timestamp: getTimestamp()
+          }];
+          await sendSlackAlert(mismatches);
+        }
       }
       
       process.exit(0);
