@@ -166,6 +166,8 @@ on:
 | `PROCESS_ID` | Yes* | - | Process to monitor (single-process) |
 | `SLACK_WEBHOOK_URL` | No | - | Slack alert webhook |
 | `REQUEST_TIMEOUT` | No | `10000` | Request timeout in ms |
+| `PAGERDUTY_ROUTING_KEY` | No | - | PagerDuty Events API v2 routing key |
+| `PAGERDUTY_SEVERITY_THRESHOLD` | No | `50` | Minimum slots behind to trigger PagerDuty alert |
 
 *Required only for single-process workflow
 
@@ -188,6 +190,31 @@ on:
 - Multiple mismatches: Batched summary
 - Includes process ID, nonces, and timestamp
 - Color-coded (red for mismatches)
+
+### PagerDuty Alerts Support (Optional)
+
+**Integration:**
+- Environment variable: `PAGERDUTY_ROUTING_KEY` secret (optional)
+- Enabled via: `PAGERDUTY_ENABLED: true` in workflow env
+- Alerts sent to PagerDuty Events API v2
+- Deduplication prevents duplicate incidents
+- Auto-resolution when issues clear
+
+**Configuration:**
+- `PAGERDUTY_ENABLED`: Set to `true` to enable (default: false)
+- `PAGERDUTY_ROUTING_KEY`: Events API v2 routing key (required if enabled)
+- `PAGERDUTY_SEVERITY_THRESHOLD`: Minimum slots behind to alert (default: 50)
+- `PAGERDUTY_AUTO_RESOLVE`: Auto-resolve incidents (default: true)
+
+**Features:**
+- Escalation policies and on-call notifications
+- Daily deduplication key rotation
+- Auto-resolve on next successful check
+- Incident tracking and analytics
+- Separate threshold from Slack (e.g., PagerDuty for critical, Slack for all)
+
+**Setup:**
+See [PAGERDUTY_SETUP.md](../PAGERDUTY_SETUP.md) for detailed configuration instructions
 
 ### Built-in Logging and Monitoring
 
@@ -256,6 +283,10 @@ env:
   PROCESS_ID: ${{ inputs.process_id || secrets.PROCESS_ID }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '10000' }}
+  PAGERDUTY_ENABLED: true
+  PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+  PAGERDUTY_SEVERITY_THRESHOLD: ${{ secrets.PAGERDUTY_SEVERITY_THRESHOLD || 50 }}
+  PAGERDUTY_AUTO_RESOLVE: true
 ```
 
 **Steps:**
@@ -295,6 +326,10 @@ env:
   CONFIG_FILE: process-ids.txt
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '10000' }}
+  PAGERDUTY_ENABLED: true
+  PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+  PAGERDUTY_SEVERITY_THRESHOLD: ${{ secrets.PAGERDUTY_SEVERITY_THRESHOLD || 50 }}
+  PAGERDUTY_AUTO_RESOLVE: true
 ```
 
 **Steps:**

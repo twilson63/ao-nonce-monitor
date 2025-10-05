@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const https = require('https');
+const pagerduty = require('./lib/pagerduty');
 
 const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '10000', 10);
 
@@ -398,6 +399,14 @@ async function main() {
       await sendSlackAlert(mismatches);
       await sendSlackErrorAlert(errors);
       
+      const pdConfig = pagerduty.getConfigFromEnv();
+      if (pdConfig.enabled && mismatches.length > 0) {
+        await pagerduty.sendPagerDutyEvent(mismatches, 'trigger', pdConfig);
+      }
+      if (pdConfig.enabled && errors.length > 0) {
+        await pagerduty.sendPagerDutyEvent(errors, 'trigger', pdConfig);
+      }
+      
       process.exit(exitCode);
     } catch (error) {
       logError(null, error.message);
@@ -430,6 +439,11 @@ async function main() {
             timestamp: getTimestamp()
           }];
           await sendSlackAlert(mismatches);
+          
+          const pdConfig = pagerduty.getConfigFromEnv();
+          if (pdConfig.enabled) {
+            await pagerduty.sendPagerDutyEvent(mismatches, 'trigger', pdConfig);
+          }
         }
       }
       

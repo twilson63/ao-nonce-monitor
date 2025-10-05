@@ -40,6 +40,10 @@ jobs:
           CONFIG_FILE: ./process-ids.state-2.txt
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '10000' }}
+          PAGERDUTY_ENABLED: true
+          PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+          PAGERDUTY_SEVERITY_THRESHOLD: ${{ secrets.PAGERDUTY_SEVERITY_THRESHOLD || '50' }}
+          PAGERDUTY_AUTO_RESOLVE: true
         run: |
           echo "Starting nonce monitor for State 2..."
           node nonce-monitor.js

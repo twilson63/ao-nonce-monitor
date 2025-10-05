@@ -11,6 +11,7 @@ A lightweight monitoring script that validates nonce synchronization between AO 
 - **Aggregated Summary Reporting**: Get consolidated results across all monitored processes
 - **Slack notifications for nonce mismatches**: Get real-time alerts in Slack when mismatches are detected
 - **Batched alerts for multi-process monitoring**: Receive consolidated Slack alerts for multiple processes
+- **PagerDuty Integration**: Critical incident management with auto-resolution and deduplication
 - **Automated Validation**: Detects synchronization mismatches in real-time
 - **GitHub Actions automation (serverless monitoring)**: Run monitoring without any server infrastructure
 - **No server infrastructure required**: Deploy and run completely serverless via GitHub Actions
@@ -249,6 +250,10 @@ The script can be configured using environment variables:
 | `REQUEST_TIMEOUT` | HTTP request timeout in milliseconds | `10000` (10 seconds) | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook URL for sending alerts | None | No |
 | `SLACK_ALERT_ON_ERROR` | Send Slack alerts for errors (not just mismatches) | `false` | No |
+| `PAGERDUTY_ENABLED` | Enable PagerDuty alerting | `false` | No |
+| `PAGERDUTY_ROUTING_KEY` | Events API v2 routing key | None | Yes (if enabled) |
+| `PAGERDUTY_SEVERITY_THRESHOLD` | Minimum slots behind to trigger alerts | `50` | No |
+| `PAGERDUTY_AUTO_RESOLVE` | Auto-resolve incidents when processes catch up | `true` | No |
 
 **Configuration Precedence:**
 1. If config file exists at `CONFIG_FILE` path → multi-process mode (ignores `PROCESS_ID`)
@@ -318,6 +323,17 @@ SLACK_ALERT_ON_ERROR=true
 ```
 
 For detailed setup instructions, see [SLACK_SETUP.md](SLACK_SETUP.md).
+
+### PagerDuty Alerts
+
+For critical incident management, configure PagerDuty Events API v2 integration:
+
+- Incidents triggered when processes fall ≥50 slots behind (configurable)
+- Automatic incident resolution when processes catch up
+- Deduplication prevents alert spam
+- Supports both single-process and multi-process monitoring
+
+See [PAGERDUTY_SETUP.md](PAGERDUTY_SETUP.md) for detailed setup instructions.
 
 ## Usage
 

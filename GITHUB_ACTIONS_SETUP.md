@@ -97,6 +97,21 @@ Secrets store sensitive data like process IDs and webhook URLs securely.
 - Used for: Custom timeout duration
 - Default: 10 seconds if not set
 
+**PAGERDUTY_ROUTING_KEY** (Optional)
+- Name: `PAGERDUTY_ROUTING_KEY`
+- Value: Your PagerDuty Events API v2 routing key (e.g., `R0123456789ABCDEFGHIJKLMNOPQR`)
+- Used for: Sending critical alerts to PagerDuty
+- Get from: PagerDuty → Services → Your Service → Integrations → Events API v2
+- Only required if you want PagerDuty alerts from GitHub Actions workflows
+- See [PAGERDUTY_SETUP.md](PAGERDUTY_SETUP.md) for detailed setup
+
+**PAGERDUTY_SEVERITY_THRESHOLD** (Optional)
+- Name: `PAGERDUTY_SEVERITY_THRESHOLD`
+- Value: Minimum slots behind to trigger PagerDuty alert (e.g., `100`)
+- Used for: Controlling PagerDuty alert sensitivity
+- Default: 50 slots if not set
+- Recommended: Higher than Slack threshold (e.g., 100 for PagerDuty, 50 for Slack)
+
 ### Adding Secrets via GitHub CLI
 
 ```bash
@@ -112,6 +127,12 @@ gh secret set SLACK_WEBHOOK_URL --body "https://hooks.slack.com/services/XXX/YYY
 
 # Add timeout (optional)
 gh secret set REQUEST_TIMEOUT --body "30"
+
+# Add PagerDuty routing key (optional)
+gh secret set PAGERDUTY_ROUTING_KEY --body "R0123456789ABCDEFGHIJKLMNOPQR"
+
+# Add PagerDuty severity threshold (optional)
+gh secret set PAGERDUTY_SEVERITY_THRESHOLD --body "100"
 
 # List all secrets
 gh secret list
@@ -161,6 +182,10 @@ jobs:
           PROCESS_ID: ${{ secrets.PROCESS_ID }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT }}
+          PAGERDUTY_ENABLED: true
+          PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+          PAGERDUTY_SEVERITY_THRESHOLD: ${{ secrets.PAGERDUTY_SEVERITY_THRESHOLD || 50 }}
+          PAGERDUTY_AUTO_RESOLVE: true
         run: node scripts/check-single.js
 ```
 
@@ -194,6 +219,10 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT }}
+          PAGERDUTY_ENABLED: true
+          PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+          PAGERDUTY_SEVERITY_THRESHOLD: ${{ secrets.PAGERDUTY_SEVERITY_THRESHOLD || 50 }}
+          PAGERDUTY_AUTO_RESOLVE: true
         run: node scripts/check-multiple.js
 ```
 
@@ -329,6 +358,107 @@ Filter by:
 - Branch
 - Status
 - Event (schedule, workflow_dispatch)
+
+## PagerDuty Integration (Optional)
+
+### Overview
+
+PagerDuty integration enables critical incident management for GitHub Actions monitoring. When enabled, PagerDuty alerts provide:
+- Escalation policies and on-call notifications
+- Deduplication to prevent alert spam
+- Auto-resolution when issues clear
+- Incident tracking and analytics
+
+**Note**: PagerDuty is completely optional. If not configured, workflows will only use Slack notifications (if configured).
+
+### Setup Steps
+
+#### 1. Create PagerDuty Integration
+
+Follow [PAGERDUTY_SETUP.md](PAGERDUTY_SETUP.md) to:
+1. Create or select a PagerDuty service
+2. Add Events API v2 integration
+3. Copy the routing key (Integration Key)
+
+#### 2. Add GitHub Secrets
+
+Add to repository secrets (Settings → Secrets → Actions):
+
+**Required for PagerDuty**:
+- `PAGERDUTY_ROUTING_KEY`: Your Events API v2 routing key
+
+**Optional**:
+- `PAGERDUTY_SEVERITY_THRESHOLD`: Slots behind threshold (default: 50)
+
+Via GitHub CLI:
+```bash
+gh secret set PAGERDUTY_ROUTING_KEY --body "R0123456789ABCDEFGHIJKLMNOPQR"
+gh secret set PAGERDUTY_SEVERITY_THRESHOLD --body "100"
+```
+
+#### 3. Enable in Workflow
+
+PagerDuty is enabled by setting `PAGERDUTY_ENABLED: true` in your workflow's `env` section. The example workflows above already include this configuration.
+
+To disable PagerDuty without removing secrets:
+```yaml
+env:
+  PAGERDUTY_ENABLED: false  # Change to false
+  PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+```
+
+Or simply remove the PagerDuty environment variables entirely.
+
+#### 4. Test the Integration
+
+Trigger a manual workflow run and verify:
+1. Check workflow logs for PagerDuty event messages
+2. Check PagerDuty service for new incidents
+3. Verify deduplication works on subsequent runs
+
+### Configuration Options
+
+**PAGERDUTY_ENABLED**:
+- Set to `true` to enable PagerDuty alerts
+- Set to `false` or remove to disable
+- Default: false (if not specified)
+
+**PAGERDUTY_SEVERITY_THRESHOLD**:
+- Minimum slots behind to trigger PagerDuty alert
+- Default: 50 slots
+- Recommended: Use higher threshold for PagerDuty (100) than Slack (50)
+- Example: Only page on-call for severe issues (≥100 slots), but notify Slack for all issues (≥50 slots)
+
+**PAGERDUTY_AUTO_RESOLVE**:
+- Set to `true` to auto-resolve incidents when processes catch up
+- Set to `false` to require manual resolution
+- Default: true
+
+### Best Practices
+
+**Separate Thresholds for Slack vs PagerDuty**:
+```yaml
+env:
+  # Slack - All issues (informational)
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  
+  # PagerDuty - Critical issues only (pages on-call)
+  PAGERDUTY_ENABLED: true
+  PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+  PAGERDUTY_SEVERITY_THRESHOLD: 100  # Higher threshold
+```
+
+**Enable Auto-Resolution**:
+- Reduces manual toil for on-call engineers
+- Incidents auto-resolve on next successful check
+- Recommended for transient issues
+
+**Test Before Deploying**:
+1. Create a test PagerDuty service
+2. Use test routing key in staging
+3. Trigger intentional alerts
+4. Verify deduplication and auto-resolution
+5. Deploy to production with production routing key
 
 ## Multi-Process Setup
 

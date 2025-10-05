@@ -85,6 +85,38 @@ else
 fi
 echo ""
 
+echo "----------------------------------------"
+echo "PagerDuty Integration (Optional)"
+echo "----------------------------------------"
+echo ""
+echo "PagerDuty provides critical incident management with escalation policies."
+echo "See PAGERDUTY_SETUP.md for detailed setup instructions."
+echo ""
+
+read -p "Enter PAGERDUTY_ROUTING_KEY (optional, press Enter to skip): " pagerduty_key
+if [ -n "$pagerduty_key" ]; then
+    echo "Setting PAGERDUTY_ROUTING_KEY..."
+    echo "$pagerduty_key" | gh secret set PAGERDUTY_ROUTING_KEY
+    echo "✓ PAGERDUTY_ROUTING_KEY set successfully"
+    
+    read -p "Enter PAGERDUTY_SEVERITY_THRESHOLD in slots (optional, press Enter for default 50): " pagerduty_threshold
+    if [ -n "$pagerduty_threshold" ]; then
+        if ! [[ "$pagerduty_threshold" =~ ^[0-9]+$ ]]; then
+            echo "Error: PAGERDUTY_SEVERITY_THRESHOLD must be a number."
+            exit 1
+        fi
+        echo "Setting PAGERDUTY_SEVERITY_THRESHOLD..."
+        echo "$pagerduty_threshold" | gh secret set PAGERDUTY_SEVERITY_THRESHOLD
+        echo "✓ PAGERDUTY_SEVERITY_THRESHOLD set to ${pagerduty_threshold} slots"
+    else
+        echo "⊘ PAGERDUTY_SEVERITY_THRESHOLD skipped (will use default 50 slots)"
+    fi
+else
+    echo "⊘ PagerDuty integration skipped (PagerDuty alerts will be disabled)"
+    echo "  You can add PAGERDUTY_ROUTING_KEY later to enable PagerDuty alerts"
+fi
+echo ""
+
 echo "========================================"
 echo "  Configuration Complete!               "
 echo "========================================"

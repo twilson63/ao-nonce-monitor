@@ -42,6 +42,39 @@ This document describes all GitHub Secrets required to run the Nonce Monitor wor
 - Decrease for faster failure detection in time-sensitive environments
 - Set between 10-120 seconds depending on network conditions
 
+### PAGERDUTY_ROUTING_KEY
+
+**Required:** No (Optional)
+
+**Description:** PagerDuty Events API v2 routing key for sending critical alerts to PagerDuty. Only required if you want PagerDuty alerts from GitHub Actions workflows.
+
+**Example Format:** `R0123456789ABCDEFGHIJKLMNOPQR`
+
+**How to Obtain:**
+1. Log into [PagerDuty](https://app.pagerduty.com)
+2. Navigate to **Services** → **Service Directory**
+3. Select your service (or create a new one)
+4. Click the **Integrations** tab
+5. Click **+ Add Integration**
+6. Select **Events API v2**
+7. Click **Add**
+8. Copy the **Integration Key** (this is your routing key)
+
+**See Also:** [PAGERDUTY_SETUP.md](../PAGERDUTY_SETUP.md) for detailed setup instructions
+
+### PAGERDUTY_SEVERITY_THRESHOLD
+
+**Required:** No (Optional)
+
+**Description:** Minimum number of slots behind scheduler to trigger a PagerDuty alert. Only used if PagerDuty is enabled.
+
+**Default Value:** `50` slots
+
+**When to Change:**
+- Increase for less sensitive alerting (only critical issues)
+- Decrease for more sensitive alerting (catch issues earlier)
+- Recommended: Use higher threshold for PagerDuty (100) and lower threshold for Slack (50)
+
 ## Adding Secrets
 
 ### Using GitHub Web UI
