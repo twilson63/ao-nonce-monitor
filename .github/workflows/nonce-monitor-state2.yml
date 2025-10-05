@@ -1,23 +1,18 @@
-name: AO Network Nonce Monitor
+name: AO Network Nonce Monitor - State 2
 
 on:
   schedule:
     - cron: '*/5 * * * *'
   
   workflow_dispatch:
-    inputs:
-      process_id:
-        description: 'Process ID to monitor (overrides secret)'
-        required: false
-        type: string
 
 concurrency:
-  group: nonce-monitor
+  group: nonce-monitor-state2
   cancel-in-progress: false
 
 jobs:
   monitor-nonce:
-    name: Monitor AO Nonce Synchronization
+    name: Monitor AO Nonce - State 2
     runs-on: ubuntu-latest
     timeout-minutes: 10
     
@@ -36,15 +31,17 @@ jobs:
           echo "Run ID: ${{ github.run_id }}"
           echo "Run number: ${{ github.run_number }}"
           echo "Triggered by: ${{ github.event_name }}"
+          echo "State URL: ${{ secrets.STATE_URL_2 }}"
           echo "Time: $(date -u)"
       
       - name: Run nonce monitor
         env:
-          PROCESS_ID: ${{ inputs.process_id || secrets.PROCESS_ID }}
+          STATE_URL: ${{ secrets.STATE_URL_2 }}
+          CONFIG_FILE: ./process-ids.state-2.txt
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '10000' }}
         run: |
-          echo "Starting nonce monitor..."
+          echo "Starting nonce monitor for State 2..."
           node nonce-monitor.js
           EXIT_CODE=$?
           echo "Monitor completed with exit code: $EXIT_CODE"
@@ -53,8 +50,10 @@ jobs:
       - name: Workflow summary
         if: always()
         run: |
-          echo "### Nonce Monitor Results :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "### Nonce Monitor Results - State 2 :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**State URL:** ${{ secrets.STATE_URL_2 }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Config File:** ./process-ids.state-2.txt" >> $GITHUB_STEP_SUMMARY
           echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
           echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
