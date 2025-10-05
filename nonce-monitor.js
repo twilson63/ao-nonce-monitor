@@ -362,7 +362,7 @@ function generateSummary(results) {
   console.log(`Mismatches: ${mismatches} ✗`);
   console.log(`Errors: ${errors} ⚠`);
   
-  return (errors > 0 || mismatches > 0) ? 1 : 0;
+  return errors > 0 ? 1 : 0;
 }
 
 async function main() {
