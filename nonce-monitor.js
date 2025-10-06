@@ -400,6 +400,7 @@ async function main() {
       await sendSlackErrorAlert(errors);
       
       const pdConfig = pagerduty.getConfigFromEnv();
+      console.log(pdConfig);
       if (pdConfig.enabled && mismatches.length > 0) {
         await pagerduty.sendPagerDutyEvent(mismatches, 'trigger', pdConfig);
       }
