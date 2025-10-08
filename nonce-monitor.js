@@ -21,6 +21,38 @@ function isValidProcessId(id) {
   return typeof id === 'string' && id.trim().length > 0;
 }
 
+function isRetryableError(error) {
+  if (!error || !error.message) {
+    return false;
+  }
+  
+  const errorMessage = error.message.toLowerCase();
+  const retryablePatterns = [
+    'timeout',
+    'network',
+    'econnrefused',
+    'etimedout',
+    'enotfound',
+    'http 5',
+    'http 429',
+    'aborterror',
+    'fetch failed',
+    'request timeout'
+  ];
+  
+  return retryablePatterns.some(pattern => errorMessage.includes(pattern.toLowerCase()));
+}
+
+function calculateBackoffDelay(attempt, baseDelay, maxDelay) {
+  const exponentialDelay = baseDelay * Math.pow(2, attempt);
+  const jitteredDelay = exponentialDelay * (0.5 + Math.random() * 0.5);
+  return Math.min(jitteredDelay, maxDelay);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function loadConfig(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
@@ -248,6 +280,31 @@ async function fetchWithTimeout(url, timeout) {
   }
 }
 
+async function fetchWithRetry(url, timeout, retryOptions = {}) {
+  const maxRetries = parseInt(process.env.SU_ROUTER_MAX_RETRIES || retryOptions.maxRetries || '5');
+  const baseDelay = parseInt(process.env.SU_ROUTER_BASE_DELAY || retryOptions.baseDelay || '1000');
+  const maxDelay = parseInt(process.env.SU_ROUTER_MAX_DELAY || retryOptions.maxDelay || '30000');
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fetchWithTimeout(url, timeout);
+    } catch (error) {
+      if (attempt === maxRetries) {
+        throw new Error(`Failed after ${maxRetries + 1} attempts: ${error.message}`);
+      }
+      
+      if (!isRetryableError(error)) {
+        throw error;
+      }
+      
+      const delay = calculateBackoffDelay(attempt, baseDelay, maxDelay);
+      console.log(`[${getTimestamp()}] [SU Router Retry] Attempt ${attempt + 1}/${maxRetries} for ${url} after ${Math.round(delay)}ms delay: ${error.message}`);
+      
+      await sleep(delay);
+    }
+  }
+}
+
 async function fetchStateNonce(stateUrl) {
   try {
     const response = await fetchWithTimeout(stateUrl, REQUEST_TIMEOUT);
@@ -266,7 +323,7 @@ async function fetchStateNonce(stateUrl) {
 
 async function fetchSURouterNonce(suRouterUrl) {
   try {
-    const response = await fetchWithTimeout(suRouterUrl, REQUEST_TIMEOUT);
+    const response = await fetchWithRetry(suRouterUrl, REQUEST_TIMEOUT);
     const data = await response.json();
     
     if (!data || typeof data !== 'object') {
@@ -296,7 +353,11 @@ async function fetchSURouterNonce(suRouterUrl) {
     if (error instanceof SyntaxError) {
       throw new Error(`Failed to parse JSON from SU Router: ${error.message}`);
     }
-    if (error.message.startsWith('Failed to fetch') || error.message.startsWith('Invalid') || error.message.startsWith('Missing') || error.message.startsWith('Nonce')) {
+    if (error.message.startsWith('Failed after') || 
+        error.message.startsWith('Failed to fetch') || 
+        error.message.startsWith('Invalid') || 
+        error.message.startsWith('Missing') || 
+        error.message.startsWith('Nonce')) {
       throw error;
     }
     throw new Error(`Failed to fetch SU Router nonce: ${error.message}`);

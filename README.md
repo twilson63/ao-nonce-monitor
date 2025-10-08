@@ -17,6 +17,7 @@ A lightweight monitoring script that validates nonce synchronization between AO 
 - **No server infrastructure required**: Deploy and run completely serverless via GitHub Actions
 - **Zero Dependencies**: Uses native Node.js fetch API (Node.js 18+)
 - **Resilient Error Handling**: Gracefully handles network failures, timeouts, and malformed responses
+- **Exponential Backoff Retry**: Automatic retry with exponential backoff for SU Router endpoint failures
 - **Configurable Timeouts**: Adjustable request timeout settings
 - **Multi-Process Support**: Monitor any AO network process by ID
 - **Production-Ready Logging**: ISO 8601 timestamps with clear MATCH/MISMATCH indicators
@@ -248,6 +249,9 @@ The script can be configured using environment variables:
 | `CONFIG_FILE` | Path to process IDs configuration file | `./process-ids.txt` | No |
 | `PROCESS_ID` | AO network process ID (single-process mode) | None | No* |
 | `REQUEST_TIMEOUT` | HTTP request timeout in milliseconds | `10000` (10 seconds) | No |
+| `SU_ROUTER_MAX_RETRIES` | Maximum retry attempts for SU Router requests | `5` | No |
+| `SU_ROUTER_BASE_DELAY` | Initial retry delay in milliseconds | `1000` (1 second) | No |
+| `SU_ROUTER_MAX_DELAY` | Maximum retry delay in milliseconds | `30000` (30 seconds) | No |
 | `SLACK_WEBHOOK_URL` | Slack webhook URL for sending alerts | None | No |
 | `SLACK_ALERT_ON_ERROR` | Send Slack alerts for errors (not just mismatches) | `false` | No |
 | `PAGERDUTY_ENABLED` | Enable PagerDuty alerting | `false` | No |
@@ -271,6 +275,29 @@ The script monitors two endpoints for each process ID:
 
 2. **SU Router Endpoint**: `https://su-router.ao-testnet.xyz/{PROCESS_ID}/latest`
    - Returns JSON with nonce in `assignment.tags[]` array (where `name === "Nonce"`)
+   - **Features automatic retry with exponential backoff** for improved reliability
+
+### SU Router Retry Configuration
+
+The SU Router endpoint implements an exponential backoff retry mechanism to handle transient network failures:
+
+- **Automatic Retry**: Failed requests are automatically retried up to 5 times (configurable)
+- **Exponential Backoff**: Retry delays increase exponentially (1s, 2s, 4s, 8s, 16s...) with jitter
+- **Smart Error Detection**: Only retryable errors (timeouts, 5xx errors, network failures) trigger retries
+- **Non-Blocking**: State endpoint requests continue in parallel during SU Router retries
+- **Detailed Logging**: Each retry attempt is logged with timestamp and attempt number
+
+**Retryable Errors:**
+- Network timeouts and connection failures
+- HTTP 5xx server errors (500, 502, 503, 504)
+- HTTP 429 rate limiting
+- DNS resolution failures
+- Connection refused/reset errors
+
+**Non-Retryable Errors:**
+- HTTP 4xx client errors (400, 401, 403, 404)
+- JSON parsing errors (malformed responses)
+- Invalid response structure errors
 
 ## Slack Integration
 

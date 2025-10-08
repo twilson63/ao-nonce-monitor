@@ -280,6 +280,12 @@ nano .env
 # Optional: Request timeout in milliseconds (default: 10000)
 REQUEST_TIMEOUT=30000
 
+# SU Router Retry Configuration (optional)
+# Configure exponential backoff retry for improved reliability
+SU_ROUTER_MAX_RETRIES=5        # Maximum retry attempts (default: 5)
+SU_ROUTER_BASE_DELAY=1000      # Initial retry delay in ms (default: 1000ms)
+SU_ROUTER_MAX_DELAY=30000      # Maximum retry delay in ms (default: 30000ms)
+
 # Optional: Concurrent request limit (default: 5)
 CONCURRENT_LIMIT=10
 ```
@@ -306,16 +312,53 @@ nano process-ids.txt
 
 ### 6. Validate Configuration (Single Process Test)
 ```bash
-# Test with a single process first
-echo "0syT13r0s0tgPmIed95bJnuSqaD29HQNN8D3ElLLSrsc" > process-ids.txt
-npm start
+# Test with single process (using PROCESS_ID from .env)
+node nonce-monitor.js
 
 # Expected output:
-# [2025-10-03T12:00:00.000Z] State Nonce: 12345 | SU Router Nonce: 12345 | Status: MATCH ✓
-# === Summary: 1 processes | 1 success | 0 failed | 0 errors ===
+# [2024-01-15T10:30:00.000Z] State Nonce: 12345 | SU Router Nonce: 12345 | Status: MATCH ✓
+# === Summary ===
+# Total Processes: 1
+# Matches: 1 ✓
+# Mismatches: 0 ✗
+# Errors: 0 ⚠
 ```
 
-### 7. Create Log Directory
+### 7. SU Router Retry Configuration (Advanced)
+
+The SU Router endpoint includes automatic retry functionality with exponential backoff for improved reliability in production environments:
+
+**Default Behavior:**
+- **5 retry attempts** for failed requests
+- **Exponential backoff**: 1s → 2s → 4s → 8s → 16s (with jitter)
+- **Maximum delay**: 30 seconds per retry
+- **Smart error detection**: Only retries on network failures, timeouts, and server errors
+
+**Customization Options:**
+```bash
+# Add to .env file for custom retry behavior
+SU_ROUTER_MAX_RETRIES=3        # Reduce retries for faster failure detection
+SU_ROUTER_BASE_DELAY=2000      # Start with 2 second delays
+SU_ROUTER_MAX_DELAY=15000      # Cap maximum delay at 15 seconds
+```
+
+**When to Adjust:**
+- **High-frequency monitoring** (≤1 minute): Reduce `MAX_RETRIES` to 2-3
+- **Unreliable network**: Increase `BASE_DELAY` to 2000-5000ms
+- **Strict latency requirements**: Reduce `MAX_DELAY` to 10000-15000ms
+- **Conservative approach**: Keep defaults for maximum reliability
+
+**Monitoring Retry Activity:**
+```bash
+# View retry attempts in logs
+tail -f /var/log/nonce-monitor/monitor.log | grep "SU Router Retry"
+
+# Example log output:
+# [2024-01-15T10:30:00.000Z] [SU Router Retry] Attempt 1/5 for https://su-router.ao-testnet.xyz/... after 1200ms delay: Request timeout after 10000ms
+# [2024-01-15T10:30:02.500Z] [SU Router Retry] Attempt 2/5 for https://su-router.ao-testnet.xyz/... after 2400ms delay: HTTP 503: Service Unavailable
+```
+
+### 8. Create Log Directory
 ```bash
 # Create logs directory
 sudo mkdir -p /var/log/nonce-monitor

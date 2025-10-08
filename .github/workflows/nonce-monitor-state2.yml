@@ -34,12 +34,15 @@ jobs:
           echo "State URL: ${{ secrets.STATE_URL_2 }}"
           echo "Time: $(date -u)"
       
-      - name: Run nonce monitor
+       - name: Run nonce monitor
         env:
           STATE_URL: ${{ secrets.STATE_URL_2 }}
           CONFIG_FILE: ./process-ids.state-2.txt
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '10000' }}
+          SU_ROUTER_MAX_RETRIES: ${{ secrets.SU_ROUTER_MAX_RETRIES || '5' }}
+          SU_ROUTER_BASE_DELAY: ${{ secrets.SU_ROUTER_BASE_DELAY || '1000' }}
+          SU_ROUTER_MAX_DELAY: ${{ secrets.SU_ROUTER_MAX_DELAY || '30000' }}
           PAGERDUTY_ENABLED: true
           PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
           PAGERDUTY_SEVERITY_THRESHOLD: ${{ secrets.PAGERDUTY_SEVERITY_THRESHOLD || '50' }}
