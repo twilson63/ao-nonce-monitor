@@ -34,7 +34,7 @@ jobs:
           echo "State URL: ${{ secrets.STATE_URL_1 || 'https://state.forward.computer' }}"
           echo "Time: $(date -u)"
       
-       - name: Run nonce monitor
+      - name: Run nonce monitor
         env:
           STATE_URL: ${{ secrets.STATE_URL_1 || 'https://state.forward.computer' }}
           CONFIG_FILE: ./process-ids.txt
