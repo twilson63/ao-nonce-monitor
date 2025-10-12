@@ -380,6 +380,23 @@ async function sendSlackAlert(mismatches) {
   }
 }
 
+async function sendConsolidatedSlackAlert(mismatches, errors, options = {}) {
+  const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
+  const totalIssues = (mismatches?.length || 0) + (errors?.length || 0);
+  
+  if (!slackWebhookUrl || totalIssues === 0) {
+    return;
+  }
+  
+  try {
+    const message = buildConsolidatedSlackMessage(mismatches || [], errors || [], options);
+    await postToSlack(slackWebhookUrl, message);
+    console.log(`[${getTimestamp()}] Consolidated Slack alert sent for ${totalIssues} total issues`);
+  } catch (error) {
+    console.error(`[${getTimestamp()}] Failed to send consolidated Slack alert: ${error.message}`);
+  }
+}
+
 function buildSlackMessage(mismatches) {
   const text = `🚨 AO Network Slot Mismatch Alert - ${mismatches.length} processes affected`;
   
@@ -401,6 +418,100 @@ function buildSlackMessage(mismatches) {
       text: `... and ${mismatches.length - 10} more mismatches`
     });
   }
+  
+  return {
+    text,
+    attachments,
+    footer: 'AO Network Slot Verification Monitor',
+    ts: Math.floor(Date.now() / 1000)
+  };
+}
+
+function buildConsolidatedSlackMessage(mismatches, errors, options = {}) {
+  const totalMismatches = mismatches.length;
+  const totalErrors = errors.length;
+  const totalIssues = totalMismatches + totalErrors;
+  
+  let text = '🚨 AO Network Slot Verification Alert';
+  if (SLOT_VERIFICATION_MODE && CURRENT_SLOT && SLOT_BOUNDARY) {
+    text += ` - Slot ${CURRENT_SLOT} (Boundary ${SLOT_BOUNDARY})`;
+  }
+  
+  // Build summary line
+  const summaryParts = [];
+  if (totalMismatches > 0) {
+    summaryParts.push(`${totalMismatches} slot mismatches`);
+  }
+  if (totalErrors > 0) {
+    summaryParts.push(`${totalErrors} check errors`);
+  }
+  
+  if (summaryParts.length > 0) {
+    text += `\n${summaryParts.join(', ')}`;
+  }
+  
+  const attachments = [];
+  
+  // Add mismatch attachments (limited to first 8 to make room for errors)
+  if (totalMismatches > 0) {
+    const mismatchAttachments = mismatches.slice(0, 8).map(mismatch => {
+      const color = mismatch.diff >= 100 ? 'danger' : mismatch.diff >= 50 ? 'warning' : 'good';
+      const gatewayName = mismatch.gateway ? mismatch.gateway.replace('https://', '').replace('.forward.computer', '') : 'unknown';
+      
+      return {
+        color: color,
+        fields: [
+          { title: 'Process ID', value: truncateProcessId(mismatch.processId), short: true },
+          { title: 'Gateway', value: gatewayName, short: true },
+          { title: 'State Nonce', value: String(mismatch.stateNonce), short: true },
+          { title: 'SU Router Nonce', value: String(mismatch.suRouterNonce), short: true },
+          { title: 'Difference', value: `${mismatch.diff} slots`, short: true }
+        ]
+      };
+    });
+    
+    attachments.push(...mismatchAttachments);
+    
+    if (totalMismatches > 8) {
+      attachments.push({
+        color: 'good',
+        text: `... and ${totalMismatches - 8} more mismatches`
+      });
+    }
+  }
+  
+  // Add error attachments (limited to avoid message size limits)
+  if (totalErrors > 0) {
+    const errorAttachments = errors.slice(0, 3).map(err => ({
+      color: 'warning',
+      fields: [
+        { title: 'Process ID', value: truncateProcessId(err.processId), short: true },
+        { title: 'Error', value: err.error.substring(0, 100) + (err.error.length > 100 ? '...' : ''), short: false }
+      ]
+    }));
+    
+    attachments.push(...errorAttachments);
+    
+    if (totalErrors > 3) {
+      attachments.push({
+        color: 'warning',
+        text: `... and ${totalErrors - 3} more errors`
+      });
+    }
+  }
+  
+  // Add footer with timestamp and slot context
+  const footerFields = [{ title: 'Timestamp', value: getTimestamp(), short: false }];
+  if (SLOT_VERIFICATION_MODE && CURRENT_SLOT && SLOT_BOUNDARY) {
+    footerFields.push({ title: 'Slot Context', value: `Current: ${CURRENT_SLOT}, Boundary: ${SLOT_BOUNDARY}`, short: false });
+  }
+  
+  attachments.push({
+    color: 'good',
+    fields: footerFields,
+    footer: 'AO Network Slot Verification Monitor',
+    ts: Math.floor(Date.now() / 1000)
+  });
   
   return {
     text,
@@ -516,14 +627,25 @@ async function main() {
         timestamp: getTimestamp()
       }));
     
-    await sendSlackAlert(mismatches);
+    // Use consolidated alerting instead of individual alerts
+    const hasIssues = mismatches.length > 0 || errors.length > 0;
     
-    const pdConfig = pagerduty.getConfigFromEnv();
-    if (pdConfig.enabled && mismatches.length > 0) {
-      await pagerduty.sendPagerDutyEvent(mismatches, 'trigger', pdConfig);
-    }
-    if (pdConfig.enabled && errors.length > 0) {
-      await pagerduty.sendPagerDutyEvent(errors, 'trigger', pdConfig);
+    if (hasIssues) {
+      // Send consolidated Slack alert
+      await sendConsolidatedSlackAlert(mismatches, errors, {
+        context: SLOT_VERIFICATION_MODE ? 'Slot Verification' : 'Process Check'
+      });
+      
+      // Send consolidated PagerDuty event
+      const pdConfig = pagerduty.getConfigFromEnv();
+      if (pdConfig.enabled) {
+        const allIncidents = [...mismatches, ...errors];
+        await pagerduty.sendAggregatedPagerDutyEvent(allIncidents, 'trigger', pdConfig, {
+          context: SLOT_VERIFICATION_MODE ? `Slot Verification - Slot ${CURRENT_SLOT}` : 'Process Check',
+          type: SLOT_VERIFICATION_MODE ? 'slot-verification' : 'nonce-monitor',
+          dedupKey: `${SLOT_VERIFICATION_MODE ? 'slot' : 'nonce'}-monitor-${getTimestamp().split('T')[0]}` // Daily dedup key
+        });
+      }
     }
     
     process.exit(exitCode);

@@ -137,6 +137,23 @@ async function sendSlackErrorAlert(errors) {
   }
 }
 
+async function sendConsolidatedSlackAlert(mismatches, errors, options = {}) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  const totalIssues = (mismatches?.length || 0) + (errors?.length || 0);
+  
+  if (!webhookUrl || totalIssues === 0) {
+    return;
+  }
+  
+  try {
+    const message = buildConsolidatedSlackMessage(mismatches || [], errors || [], options);
+    await postToSlack(webhookUrl, message);
+    console.log(`[${getTimestamp()}] Consolidated Slack alert sent for ${totalIssues} total issues`);
+  } catch (error) {
+    console.error(`[${getTimestamp()}] Failed to send consolidated Slack alert: ${error.message}`);
+  }
+}
+
 function buildSlackMessage(mismatches) {
   const count = mismatches.length;
   const text = count === 1 ? '🚨 Process Behind Scheduler' : `🚨 ${count} Processes Behind Scheduler`;
@@ -203,6 +220,96 @@ function buildSlackErrorMessage(errors) {
       { title: 'Timestamp', value: err.timestamp, short: true }
     ]
   }));
+  
+  return {
+    text,
+    attachments,
+    footer: 'AO Network Nonce Monitor',
+    ts: Math.floor(Date.now() / 1000)
+  };
+}
+
+function buildConsolidatedSlackMessage(mismatches, errors, options = {}) {
+  const totalMismatches = mismatches.length;
+  const totalErrors = errors.length;
+  const totalIssues = totalMismatches + totalErrors;
+  
+  let text = '🚨 AO Network Process Status Alert';
+  if (options.context) {
+    text += ` - ${options.context}`;
+  }
+  
+  // Build summary line
+  const summaryParts = [];
+  if (totalMismatches > 0) {
+    summaryParts.push(`${totalMismatches} behind scheduler`);
+  }
+  if (totalErrors > 0) {
+    summaryParts.push(`${totalErrors} check errors`);
+  }
+  
+  if (summaryParts.length > 0) {
+    text += `\n${summaryParts.join(', ')}`;
+  }
+  
+  const attachments = [];
+  
+  // Add mismatch attachments (limited to first 8 to make room for errors)
+  if (totalMismatches > 0) {
+    const mismatchAttachments = mismatches.slice(0, 8).map(mismatch => {
+      const diff = Math.abs(parseInt(mismatch.stateNonce) - parseInt(mismatch.suRouterNonce));
+      const color = diff >= 100 ? 'danger' : diff >= 50 ? 'warning' : 'good';
+      
+      return {
+        color: color,
+        fields: [
+          { title: 'Process ID', value: truncateProcessId(mismatch.processId), short: true },
+          { title: 'State Nonce', value: String(mismatch.stateNonce), short: true },
+          { title: 'SU Router Nonce', value: String(mismatch.suRouterNonce), short: true },
+          { title: 'Difference', value: `${diff} slots`, short: true }
+        ]
+      };
+    });
+    
+    attachments.push(...mismatchAttachments);
+    
+    if (totalMismatches > 8) {
+      attachments.push({
+        color: 'good',
+        text: `... and ${totalMismatches - 8} more mismatches`
+      });
+    }
+  }
+  
+  // Add error attachments (limited to avoid message size limits)
+  if (totalErrors > 0) {
+    const errorAttachments = errors.slice(0, 3).map(err => ({
+      color: 'warning',
+      fields: [
+        { title: 'Process ID', value: truncateProcessId(err.processId), short: true },
+        { title: 'Error', value: err.error.substring(0, 100) + (err.error.length > 100 ? '...' : ''), short: false }
+      ]
+    }));
+    
+    attachments.push(...errorAttachments);
+    
+    if (totalErrors > 3) {
+      attachments.push({
+        color: 'warning',
+        text: `... and ${totalErrors - 3} more errors`
+      });
+    }
+  }
+  
+  // Add footer with timestamp
+  attachments.push({
+    color: 'good',
+    fields: [
+      { title: 'Timestamp', value: getTimestamp(), short: false }
+    ],
+    footer: 'AO Network Monitor',
+    ts: Math.floor(Date.now() / 1000)
+  });
   
   return {
     text,
@@ -457,16 +564,25 @@ async function main() {
           timestamp: getTimestamp()
         }));
       
-      await sendSlackAlert(mismatches);
-      await sendSlackErrorAlert(errors);
+      // Use consolidated alerting instead of individual alerts
+      const hasIssues = mismatches.length > 0 || errors.length > 0;
       
-      const pdConfig = pagerduty.getConfigFromEnv();
-      console.log(pdConfig);
-      if (pdConfig.enabled && mismatches.length > 0) {
-        await pagerduty.sendPagerDutyEvent(mismatches, 'trigger', pdConfig);
-      }
-      if (pdConfig.enabled && errors.length > 0) {
-        await pagerduty.sendPagerDutyEvent(errors, 'trigger', pdConfig);
+      if (hasIssues) {
+        // Send consolidated Slack alert
+        await sendConsolidatedSlackAlert(mismatches, errors, {
+          context: 'Nonce Monitor Check'
+        });
+        
+        // Send consolidated PagerDuty event
+        const pdConfig = pagerduty.getConfigFromEnv();
+        if (pdConfig.enabled) {
+          const allIncidents = [...mismatches, ...errors];
+          await pagerduty.sendAggregatedPagerDutyEvent(allIncidents, 'trigger', pdConfig, {
+            context: 'Nonce Monitor Check',
+            type: 'nonce-monitor',
+            dedupKey: `nonce-monitor-${getTimestamp().split('T')[0]}` // Daily dedup key
+          });
+        }
       }
       
       process.exit(exitCode);
