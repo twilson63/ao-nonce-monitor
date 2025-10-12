@@ -137,7 +137,7 @@ jobs:
         env:
           CONFIG_FILE: process-ids-from-map.txt
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '10000' }}
+          REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '30000' }}
           SU_ROUTER_MAX_RETRIES: ${{ secrets.SU_ROUTER_MAX_RETRIES || '3' }}
           SU_ROUTER_BASE_DELAY: ${{ secrets.SU_ROUTER_BASE_DELAY || '500' }}
           SU_ROUTER_MAX_DELAY: ${{ secrets.SU_ROUTER_MAX_DELAY || '10000' }}
