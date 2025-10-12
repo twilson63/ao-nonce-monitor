@@ -9,7 +9,9 @@
   },
   "scripts": {
     "start": "node nonce-monitor.js",
-    "test": "node test-monitor.js"
+    "test": "node test-monitor.js",
+    "slot-verify": "node slot-verification-monitor.js",
+    "test-slot": "node test-slot-verification.js"
   },
   "keywords": [
     "monitoring",

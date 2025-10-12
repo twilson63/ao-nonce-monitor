@@ -1,0 +1,202 @@
+name: AO Network Slot Verification
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # Run every 10 minutes for comprehensive slot checking
+  
+  workflow_dispatch:
+    inputs:
+      slot_boundary:
+        description: 'Slot boundary interval (default: 500)'
+        required: false
+        default: '500'
+        type: string
+      tolerance:
+        description: 'Slot tolerance in slots (default: 10)'
+        required: false
+        default: '10'
+        type: string
+      force_run:
+        description: 'Force run regardless of slot boundary'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: slot-verification
+  cancel-in-progress: false
+
+jobs:
+  slot-verification:
+    name: Verify Slots Across All Processes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Display workflow info
+        run: |
+          echo "Workflow: ${{ github.workflow }}"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Run number: ${{ github.run_number }}"
+          echo "Triggered by: ${{ github.event_name }}"
+          echo "Time: $(date -u)"
+          echo "Slot boundary: ${{ github.event.inputs.slot_boundary || '500' }}"
+          echo "Tolerance: ${{ github.event.inputs.tolerance || '10' }}"
+          echo "Force run: ${{ github.event.inputs.force_run || 'false' }}"
+      
+      - name: Verify process-map.json exists
+        run: |
+          if [ ! -f process-map.json ]; then
+            echo "Error: process-map.json not found"
+            exit 1
+          fi
+          echo "Process map configuration file found"
+          
+          # Count total processes in the map
+          PROCESS_COUNT=$(jq 'length' process-map.json)
+          echo "Total processes in map: $PROCESS_COUNT"
+          
+          # Show gateway distribution
+          echo "Gateway distribution:"
+          jq -r 'to_entries | group_by(.value) | map({gateway: .[0].value, count: length}) | sort_by(.count) | reverse | .[] | "  \(.gateway): \(.count) processes"' process-map.json
+      
+      - name: Check slot boundaries
+        id: slot_check
+        run: |
+          # Get sample process ID for slot checking
+          SAMPLE_PROCESS_ID=$(jq -r 'keys[0]' process-map.json)
+          echo "Using sample process ID: $SAMPLE_PROCESS_ID"
+          
+          # Get current slot from state endpoint
+          CURRENT_SLOT=$(curl -s "https://state.forward.computer/$SAMPLE_PROCESS_ID~process@1.0/compute/at-slot" 2>/dev/null)
+          
+          # Verify we got a valid slot number
+          if ! [[ "$CURRENT_SLOT" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: Failed to get current slot (got: $CURRENT_SLOT)"
+            exit 1
+          fi
+          
+          echo "Current slot: $CURRENT_SLOT"
+          
+          # Calculate slot boundary check
+          SLOT_INTERVAL="${{ github.event.inputs.slot_boundary || '500' }}"
+          TOLERANCE="${{ github.event.inputs.tolerance || '10' }}"
+          REMAINDER=$((CURRENT_SLOT % SLOT_INTERVAL))
+          
+          echo "Slot interval: $SLOT_INTERVAL"
+          echo "Tolerance: ±$TOLERANCE slots"
+          echo "Remainder: $REMAINDER"
+          
+          # Check if we should run based on slot boundary
+          if [ "${{ github.event.inputs.force_run }}" = "true" ]; then
+            echo "Force run enabled - proceeding regardless of slot boundary"
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          elif [ $REMAINDER -lt $TOLERANCE ] || [ $((SLOT_INTERVAL - REMAINDER)) -lt $TOLERANCE ]; then
+            echo "Within slot boundary tolerance - proceeding with verification"
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Outside slot boundary tolerance - skipping verification"
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "current_slot=$CURRENT_SLOT" >> $GITHUB_OUTPUT
+          echo "slot_boundary=$((CURRENT_SLOT - REMAINDER))" >> $GITHUB_OUTPUT
+      
+      - name: Generate process ID list from map
+        if: steps.slot_check.outputs.should_run == 'true'
+        run: |
+          # Extract all process IDs from process-map.json and create a temporary config file
+          jq -r 'keys[]' process-map.json > process-ids-from-map.txt
+          
+          # For testing with act, limit to first 10 processes to avoid timeout
+          if [ -n "$ACT" ]; then
+            echo "⚠️  ACT testing mode - limiting to first 10 processes"
+            head -10 process-ids-from-map.txt > process-ids-from-map-temp.txt
+            mv process-ids-from-map-temp.txt process-ids-from-map.txt
+          fi
+          
+          echo "Generated process ID list from process-map.json:"
+          echo "Total processes: $(wc -l < process-ids-from-map.txt)"
+          echo "First 5 process IDs:"
+          head -5 process-ids-from-map.txt
+          echo "..."
+          echo "Last 5 process IDs:"
+          tail -5 process-ids-from-map.txt
+      
+      - name: Run comprehensive slot verification
+        if: steps.slot_check.outputs.should_run == 'true'
+        continue-on-error: true
+        env:
+          CONFIG_FILE: process-ids-from-map.txt
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REQUEST_TIMEOUT: ${{ secrets.REQUEST_TIMEOUT || '10000' }}
+          SU_ROUTER_MAX_RETRIES: ${{ secrets.SU_ROUTER_MAX_RETRIES || '3' }}
+          SU_ROUTER_BASE_DELAY: ${{ secrets.SU_ROUTER_BASE_DELAY || '500' }}
+          SU_ROUTER_MAX_DELAY: ${{ secrets.SU_ROUTER_MAX_DELAY || '10000' }}
+          PAGERDUTY_ENABLED: true
+          PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+          PAGERDUTY_SEVERITY_THRESHOLD: ${{ secrets.PAGERDUTY_SEVERITY_THRESHOLD || '25' }}
+          PAGERDUTY_AUTO_RESOLVE: true
+          SLOT_VERIFICATION_MODE: true
+          CURRENT_SLOT: ${{ steps.slot_check.outputs.current_slot }}
+          SLOT_BOUNDARY: ${{ steps.slot_check.outputs.slot_boundary }}
+        run: |
+          echo "Starting comprehensive slot verification for all processes..."
+          echo "Current slot: $CURRENT_SLOT"
+          echo "Slot boundary: $SLOT_BOUNDARY"
+          echo "Monitoring $(wc -l < process-ids-from-map.txt) processes across multiple gateways..."
+          
+          # Run the slot verification monitor with enhanced timeout for comprehensive checking
+          node slot-verification-monitor.js
+          EXIT_CODE=$?
+          
+          echo "Slot verification completed with exit code: $EXIT_CODE"
+          
+          # Generate detailed results summary - continue regardless of individual process errors
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✅ All process slots verified successfully"
+          else
+            echo "⚠️ Slot verification completed with some issues detected"
+            echo "All processes were checked - review logs for details"
+            # Don't fail the workflow - we want to continue and generate reports
+            EXIT_CODE=0
+          fi
+          
+          exit $EXIT_CODE
+      
+      - name: Generate slot verification report
+        if: always() && steps.slot_check.outputs.should_run == 'true'
+        run: |
+          echo "### Slot Verification Report 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.slot_check.outputs.should_run }}" = "true" ]; then
+            echo "**Current Slot:** ${{ steps.slot_check.outputs.current_slot }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Slot Boundary:** ${{ steps.slot_check.outputs.slot_boundary }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Processes Monitored:** $(wc -l < process-ids-from-map.txt)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Gateways Covered:**" >> $GITHUB_STEP_SUMMARY
+            jq -r 'to_entries | group_by(.value) | map({gateway: .[0].value, count: length}) | sort_by(.count) | reverse | .[] | "- \(.gateway): \(.count) processes"' process-map.json >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Skipped:** Outside slot boundary tolerance" >> $GITHUB_STEP_SUMMARY
+            echo "**Current Slot:** ${{ steps.slot_check.outputs.current_slot }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Next Check:** Around slot $(( ${{ steps.slot_check.outputs.current_slot }} + 500 - ${{ steps.slot_check.outputs.current_slot }} % 500 ))" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Cleanup temporary files
+        if: always()
+        run: |
+          rm -f process-ids-from-map.txt
+          echo "Cleaned up temporary files"
